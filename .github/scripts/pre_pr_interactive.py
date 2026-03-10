@@ -21,29 +21,63 @@ def run(cmd):
 
 
 def detect_base_branch():
-    # Try to infer origin default branch
+    # Try to infer origin default branch, but fall back gracefully when remotes are missing.
     try:
         out = run("git rev-parse --abbrev-ref origin/HEAD")
-        # origin/main or origin/HEAD -> parse
-        if out.startswith('origin/'):
+        if out and out.startswith('origin/'):
             return out.split('/', 1)[1]
     except Exception:
         pass
-    # fallback common names
+
+    # If origin/HEAD not available, check common remote branches
     for b in ('main', 'master'):
         try:
-            run(f'git rev-parse --verify origin/{b}')
+            # check remote exists
+            rc = subprocess.run(f'git ls-remote --exit-code --heads origin {b}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+            if rc == 0:
+                return b
+        except Exception:
+            continue
+
+    # Last fallback: if no remote, try local main/master
+    for b in ('main', 'master'):
+        try:
+            run(f'git rev-parse --verify {b}')
             return b
         except Exception:
             continue
-    return 'main'
+
+    # Otherwise return the currently checked-out branch
+    try:
+        return run('git rev-parse --abbrev-ref HEAD')
+    except Exception:
+        return 'main'
 
 
 def gather_changed_files(base):
     try:
-        # fetch base to ensure up-to-date
+        # Try to fetch the base branch from origin (if remote exists)
         subprocess.run(f'git fetch origin {base}', shell=True, check=False)
-        out = run(f'git diff --name-only origin/{base}...HEAD')
+
+        # Prefer diff against origin/base when available, otherwise local base
+        rc = subprocess.run(f'git rev-parse --verify --quiet origin/{base}', shell=True, stdout=subprocess.DEVNULL).returncode
+        if rc == 0:
+            diff_from = f'origin/{base}'
+        else:
+            # fallback to local base branch
+            rc2 = subprocess.run(f'git rev-parse --verify --quiet {base}', shell=True, stdout=subprocess.DEVNULL).returncode
+            if rc2 == 0:
+                diff_from = base
+            else:
+                # no base found, diff against empty tree
+                diff_from = ''
+
+        if diff_from:
+            out = run(f'git diff --name-only {diff_from}...HEAD')
+        else:
+            # list all tracked files as fallback (no base available)
+            out = run('git ls-files')
+
         files = [l for l in out.splitlines() if l.strip()]
         return files
     except Exception:
@@ -90,6 +124,79 @@ def main():
     print('Gathering repository info...')
     base = detect_base_branch()
     print(f'Using base branch: {base}')
+
+    # detect current branch early
+    try:
+        current_branch = run('git rev-parse --abbrev-ref HEAD')
+    except Exception:
+        current_branch = ''
+
+    # If on the base branch, create a new branch first (and optionally commit uncommitted changes)
+    if current_branch and current_branch == base:
+        print(f'You are on the base branch `{base}`.')
+        # check for uncommitted changes
+        status = ''
+        try:
+            status = run('git status --porcelain')
+        except Exception:
+            status = ''
+
+        if status:
+            print('Uncommitted changes detected:')
+            print(status)
+            if ask_yes_no('Commit uncommitted changes now before creating a PR branch?', default='y'):
+                default_msg = ''
+                try:
+                    default_msg = run('git log -1 --pretty=%s')
+                except Exception:
+                    default_msg = 'chore: commit before PR'
+                msg = input(f'Commit message (default: "{default_msg}"): ').strip() or default_msg
+                subprocess.run('git add -A', shell=True)
+                rc = subprocess.run(f'git commit -m "{msg.replace("\"","\\\"")}"', shell=True).returncode
+                if rc != 0:
+                    print('Failed to commit changes. Please commit manually and re-run the script.')
+                    return
+            else:
+                print('Proceeding without committing uncommitted changes.')
+
+        # create a new branch derived from base
+        import re
+        def slugify(s):
+            s = s.lower()
+            s = re.sub(r'[^a-z0-9]+', '-', s)
+            s = s.strip('-')
+            if len(s) > 50:
+                s = s[:50].rstrip('-')
+            return s or 'pr-branch'
+
+        new_branch_base = f'pr/{slugify(get_latest_commit_title_and_body()[0] or "work")}'
+        candidate = new_branch_base
+        i = 0
+        while True:
+            exists_local = subprocess.run(f'git rev-parse --verify --quiet {candidate}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+            exists_remote = subprocess.run(f'git ls-remote --exit-code --heads origin {candidate}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+            if not (exists_local or exists_remote):
+                break
+            i += 1
+            candidate = f'{new_branch_base}-{i}'
+
+        new_branch = candidate
+        print(f'Creating and checking out new branch `{new_branch}` from `{base}`...')
+        subprocess.run(f'git fetch origin {base}', shell=True, check=False)
+        rc = subprocess.run(f'git checkout {base}', shell=True).returncode
+        if rc != 0:
+            print(f'Failed to checkout {base}. Aborting.')
+            return
+        rc = subprocess.run(f'git checkout -b {new_branch}', shell=True).returncode
+        if rc != 0:
+            print(f'Failed to create branch {new_branch}. Aborting.')
+            return
+        rc = subprocess.run(f'git push -u origin {new_branch}', shell=True).returncode
+        if rc != 0:
+            print(f'Failed to push branch {new_branch} to origin. You may need to push manually later.')
+        current_branch = new_branch
+
+    # gather changed files after branch creation (if any)
     files = gather_changed_files(base)
     print(f'Found {len(files)} changed file(s).')
 
@@ -222,6 +329,50 @@ def main():
                 base_branch = base
                 if not current_branch:
                     current_branch = input('Enter the branch name to create the PR from: ').strip()
+
+                # If the user is on the base branch, create a new branch named from the PR title
+                if current_branch == base_branch:
+                    import re
+                    def slugify(s):
+                        s = s.lower()
+                        s = re.sub(r'[^a-z0-9]+', '-', s)
+                        s = s.strip('-')
+                        if len(s) > 50:
+                            s = s[:50].rstrip('-')
+                        return s or 'pr-branch'
+
+                    new_branch_base = f'pr/{slugify(title)}'
+                    candidate = new_branch_base
+                    i = 0
+                    # find a non-existing branch name
+                    while True:
+                        exists_local = subprocess.run(f'git rev-parse --verify --quiet {candidate}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+                        exists_remote = subprocess.run(f'git ls-remote --exit-code --heads origin {candidate}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+                        if not (exists_local or exists_remote):
+                            break
+                        i += 1
+                        candidate = f'{new_branch_base}-{i}'
+
+                    new_branch = candidate
+                    print(f'Creating new branch {new_branch} from {base_branch} and pushing to origin...')
+                    # ensure base is up-to-date
+                    rc = subprocess.run(f'git fetch origin {base_branch}', shell=True).returncode
+                    if rc != 0:
+                        print(f'Warning: failed to fetch origin/{base_branch}; continuing')
+                    rc = subprocess.run(f'git checkout {base_branch}', shell=True).returncode
+                    if rc != 0:
+                        print(f'Failed to checkout {base_branch}. Aborting PR creation.')
+                    else:
+                        rc = subprocess.run(f'git checkout -b {new_branch}', shell=True).returncode
+                        if rc != 0:
+                            print(f'Failed to create branch {new_branch}. Aborting PR creation.')
+                        else:
+                            rc = subprocess.run(f'git push -u origin {new_branch}', shell=True).returncode
+                            if rc != 0:
+                                print(f'Failed to push branch {new_branch} to origin. Aborting PR creation.')
+                            else:
+                                current_branch = new_branch
+
                 cmd = f'gh pr create --base {base_branch} --head {current_branch} --title "{title.replace("\"","\\\"")}" --body-file {out_path}'
                 print('Running:', cmd)
                 rc = subprocess.run(cmd, shell=True)
