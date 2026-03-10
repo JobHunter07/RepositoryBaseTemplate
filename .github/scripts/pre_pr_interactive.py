@@ -374,6 +374,44 @@ def main():
                                 current_branch = new_branch
 
                 cmd = f'gh pr create --base {base_branch} --head {current_branch} --title "{title.replace("\"","\\\"")}" --body-file {out_path}'
+
+                # Ensure there is at least one commit between base and head. If not, offer to commit or create an empty commit.
+                try:
+                    count = run(f'git rev-list --count {base_branch}..{current_branch}')
+                except Exception:
+                    count = '0'
+
+                if count.strip() == '0':
+                    print('\nNo commits found between base and head.')
+                    try:
+                        status = run('git status --porcelain')
+                    except Exception:
+                        status = ''
+
+                    if status:
+                        print('Uncommitted changes detected:')
+                        print(status)
+                        if ask_yes_no('Commit uncommitted changes now so the PR can be created?', default='y'):
+                            msg = input('Commit message: ').strip() or 'chore: commit before PR'
+                            subprocess.run('git add -A', shell=True)
+                            rc = subprocess.run(f'git commit -m "{msg.replace("\"","\\\"")}"', shell=True).returncode
+                            if rc != 0:
+                                print('Failed to commit changes. Aborting PR creation.')
+                                rc = 1
+                            else:
+                                subprocess.run('git push', shell=True)
+                        else:
+                            if ask_yes_no('Create an empty commit to allow PR creation?', default='n'):
+                                rc = subprocess.run('git commit --allow-empty -m "chore: create PR branch"', shell=True).returncode
+                                if rc != 0:
+                                    print('Failed to create empty commit. Aborting.')
+                                    rc = 1
+                                else:
+                                    subprocess.run('git push', shell=True)
+                            else:
+                                print('PR creation cancelled by user (no commits).')
+                                rc = 1
+
                 print('Running:', cmd)
                 rc = subprocess.run(cmd, shell=True)
                 if rc.returncode == 0:
