@@ -1,0 +1,35 @@
+name: PR Checklist (educational)
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  checklist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gather changed files
+        id: gather
+        run: |
+          set -e
+          BASE_REF=${{ github.event.pull_request.base.ref }}
+          echo "Base ref: $BASE_REF"
+          git fetch origin "$BASE_REF" --depth=1 || true
+          git diff --name-only origin/$BASE_REF HEAD > changed_files.txt || true
+          echo "Changed files:" && cat changed_files.txt || true
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Run PR checklist validator
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python .github/scripts/pr_checklist.py changed_files.txt

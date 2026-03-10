@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="$SCRIPT_DIR/.github/scripts/pre_pr_interactive.py"
+if [ ! -f "$PY" ]; then
+  echo "pre_pr_interactive.py not found at $PY" >&2
+  exit 1
+fi
+python3 "$PY"

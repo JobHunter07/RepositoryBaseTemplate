@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pre-pr-check",
+      "type": "shell",
+      "command": "${command:workbench.action.terminal.new}",
+      "windows": {
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}\\pre-pr-check.ps1"
+      },
+      "linux": {
+        "command": "bash ${workspaceFolder}/pre-pr-check"
+      },
+      "osx": {
+        "command": "bash ${workspaceFolder}/pre-pr-check"
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
