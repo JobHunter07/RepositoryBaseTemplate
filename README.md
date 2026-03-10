@@ -4,20 +4,22 @@ Purpose
 -------
 This repository is a reusable "base template" for JobHunter07 organization projects. It centralizes the engineering principles, contributor guidance, and lightweight automation so new repositories can inherit a consistent rule set without copy/paste.
 
-What this provides
+What this provides (CLI-first)
 -------------------
 - `.github/copilot-instructions.md` — canonical rules and guidance (The Standard) applied to all languages and project types.
 - `.github/PULL_REQUEST_TEMPLATE.md` — educational PR checklist for reviewers.
 - `.github/prompts/pre_pr_check.prompt.md` — Copilot Chat prompt to run an interactive pre-PR checklist with an author.
-- `.github/workflows/pr-checklist.yml` — GitHub Action that runs on PR open/edit/sync and executes the validator.
-- `.github/scripts/pr_checklist.py` — validator that applies conservative heuristics, updates PR checklist items it can verify, and posts a summary comment.
+- `.github/copilot-instructions.md` — canonical rules and guidance (The Standard) applied to all languages and project types.
+- `.github/PULL_REQUEST_TEMPLATE.md` — educational PR checklist for reviewers.
+- `.github/prompts/pre_pr_check.prompt.md` — Copilot Chat prompt to run an interactive pre-PR checklist with an author.
+- `.github/scripts/pre_pr_interactive.py` — interactive local CLI script that gathers changed files and walks the author through the checklist.
+- `pre-pr-check` / `pre-pr-check.ps1` — cross-platform wrappers and a VS Code task to run the interactive checklist quickly.
 
 Quick usage
 -----------
 
 Interactive (recommended before opening a PR)
-- Open Copilot Chat and use the prompt file at `.github/prompts/pre_pr_check.prompt.md`.
-- Paste your changed files list and a short PR description. Confirm subjective items when asked.
+ Use the Copilot Chat prompt at `.github/prompts/pre_pr_check.prompt.md` to walk an author through the checklist in the editor.
 
 Local automated interactive checklist (no pasting required)
 - Run the local helper to auto-gather changed files and run the interactive checklist:
@@ -49,25 +51,14 @@ Unix / macOS:
 VS Code Task
 - You can run the `pre-pr-check` task from the Command Palette (`Tasks: Run Task`) or bind it to a keyboard shortcut. The task runs the appropriate wrapper for your OS.
 
-Automated (runs after PR is opened)
-- On PR opened/edited/synchronize the workflow `.github/workflows/pr-checklist.yml` runs and executes the validator script.
-- The validator will update the PR body to check items it can verify and will post a summary comment.
+Behavior
+- The interactive script detects changed files against your repository base branch, suggests a PR title/description from the latest commit, prompts to confirm subjective checklist items, saves the checklist to `.github/pre_pr_check_result.md`, copies it to the clipboard on Windows when possible, and can optionally create the PR using the `gh` CLI.
 
-Run the validator locally
-- Create `changed_files.txt` with one changed path per line (relative to repo root).
-- Run:
-
-```bash
-python .github/scripts/pr_checklist.py changed_files.txt
-```
-
-Notes: when run locally the script prints detected results. In the GitHub Action the script updates the PR body and posts a comment using the provided `GITHUB_TOKEN` and `GITHUB_EVENT_PATH`.
 
 Customizing this template
 -------------------------
 - To change the rules, edit `.github/copilot-instructions.md` (this file is the canonical source for the template).
 - To add or relax exceptions, document them in the repo README and update the "Shared-library exceptions" section in `.github/copilot-instructions.md`.
-- To extend automated checks, edit `.github/scripts/pr_checklist.py` and add steps to `.github/workflows/pr-checklist.yml` (for example running linters or tests). The Action is educational-only by default; it updates PR bodies and posts comments but does not block merges.
 
 How to use this when creating a new repo from the template
 ---------------------------------------------------------

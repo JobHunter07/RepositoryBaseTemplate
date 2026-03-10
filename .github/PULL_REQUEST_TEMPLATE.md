@@ -6,6 +6,8 @@ Short description of the change and why it is needed.
 ## Checklist for reviewers (education-first guidance)
 These checklist items are guidance to help reviewers and authors apply the repository's principles. They are educational suggestions, not automated blockers.
 
+Reviewers and authors can mark items as: checked (`- [x]`), unchecked (`- [ ]`), or `N/A` (not applicable). To mark an item N/A, include the checklist line and append `(N/A)` — e.g. `- [ ] The change preserves Airplane Mode requirements (N/A)`.
+
 - [ ] I verified this change follows the _People-First & Simplicity_ principle (clear, maintainable code).
 - [ ] The change follows _Screaming Architecture_ (feature/vertical-slice organization) where applicable.
 - [ ] No new generic `utils/`, `helpers/`, or `services/` were added at the repository root without documented justification.

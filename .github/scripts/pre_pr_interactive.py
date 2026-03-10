@@ -15,6 +15,50 @@ import sys
 import os
 import re
 
+# Minimal terminal styling (ANSI). Works on most terminals including modern Windows terminals.
+class TermStyle:
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    RED = '\033[31m'
+    GREEN = '\033[32m'
+    YELLOW = '\033[33m'
+    BLUE = '\033[34m'
+    CYAN = '\033[36m'
+
+
+def style(text, color=None, bold=False, dim=False):
+    parts = []
+    if bold:
+        parts.append(TermStyle.BOLD)
+    if dim:
+        parts.append(TermStyle.DIM)
+    if color:
+        parts.append(color)
+    parts.append(str(text))
+    parts.append(TermStyle.RESET)
+    return ''.join(parts)
+
+
+def header(txt):
+    print(style('\n' + txt, TermStyle.CYAN, bold=True))
+
+
+def section(txt):
+    print(style('\n' + txt, TermStyle.BLUE, bold=True))
+
+
+def info(txt):
+    print(style(txt, TermStyle.GREEN))
+
+
+def warn(txt):
+    print(style(txt, TermStyle.YELLOW))
+
+
+def error(txt):
+    print(style(txt, TermStyle.RED, bold=True))
+
 
 def run(cmd):
     return subprocess.check_output(cmd, shell=True, text=True).strip()
@@ -109,21 +153,47 @@ def detect_issues(files):
 
 
 def ask_yes_no(prompt, default='y'):
-    choices = '(Y/n)' if default == 'y' else '(y/N)'
+    """
+    Legacy compatibility: replaced by ask_choice. Keep for other callers.
+    Returns 'yes' or 'no'.
+    """
+    res = ask_choice(prompt, default)
+    return res == 'yes'
+
+
+def ask_choice(prompt, default='y'):
+    """
+    Ask a question with three possible answers: yes / no / na (not applicable).
+    Returns one of: 'yes', 'no', 'na'.
+    default: 'y'|'n'|'na' determines default when user presses enter.
+    """
+    default = (default or 'y').lower()
+    if default not in ('y', 'n', 'na'):
+        default = 'y'
+    choices_map = {
+        'y': '(Y/n/NA)',
+        'n': '(y/N/NA)',
+        'na': '(y/n/NA)'
+    }
+    choices = choices_map.get(default, '(Y/n/NA)')
     while True:
         ans = input(f"{prompt} {choices}: ").strip().lower()
         if ans == '' and default:
-            return default == 'y'
+            ans = default
         if ans in ('y', 'yes'):
-            return True
+            return 'yes'
         if ans in ('n', 'no'):
-            return False
+            return 'no'
+        if ans in ('na', 'n/a', 'none', 'not applicable'):
+            return 'na'
+        print("Please answer 'y' (yes), 'n' (no), or 'na' (not applicable).")
 
 
 def main():
-    print('Gathering repository info...')
+    header('Pre-PR interactive checklist')
+    info('Gathering repository info...')
     base = detect_base_branch()
-    print(f'Using base branch: {base}')
+    info(f'Using base branch: {style(base, bold=True)}')
 
     # detect current branch early
     try:
@@ -133,7 +203,7 @@ def main():
 
     # If on the base branch, create a new branch first (and optionally commit uncommitted changes)
     if current_branch and current_branch == base:
-        print(f'You are on the base branch `{base}`.')
+        section(f'You are on the base branch `{base}`.')
         # check for uncommitted changes
         status = ''
         try:
@@ -142,8 +212,8 @@ def main():
             status = ''
 
         if status:
-            print('Uncommitted changes detected:')
-            print(status)
+            warn('Uncommitted changes detected:')
+            print(style(status, dim=True))
             if ask_yes_no('Commit uncommitted changes now before creating a PR branch?', default='y'):
                 default_msg = ''
                 try:
@@ -157,7 +227,7 @@ def main():
                     print('Failed to commit changes. Please commit manually and re-run the script.')
                     return
             else:
-                print('Proceeding without committing uncommitted changes.')
+                warn('Proceeding without committing uncommitted changes.')
 
         # create a new branch derived from base
         import re
@@ -181,7 +251,7 @@ def main():
             candidate = f'{new_branch_base}-{i}'
 
         new_branch = candidate
-        print(f'Creating and checking out new branch `{new_branch}` from `{base}`...')
+        info(f'Creating and checking out new branch {style(new_branch, bold=True)} from {style(base, bold=True)}...')
         subprocess.run(f'git fetch origin {base}', shell=True, check=False)
         rc = subprocess.run(f'git checkout {base}', shell=True).returncode
         if rc != 0:
@@ -198,26 +268,24 @@ def main():
 
     # gather changed files after branch creation (if any)
     files = gather_changed_files(base)
-    print(f'Found {len(files)} changed file(s).')
+    info(f'Found {len(files)} changed file(s).')
 
     title, body = get_latest_commit_title_and_body()
     if not title:
-        title = input('PR title (suggested): ').strip()
+        title = input(style('\nPR title (suggested): ', bold=True)).strip()
     else:
-        print('\nDetected PR title from latest commit:')
-        print(title)
-        if ask_yes_no('Use this as PR title?', default='y'):
-            pass
-        else:
-            title = input('PR title: ').strip()
+        section('Detected PR title from latest commit:')
+        print(style(title, bold=True))
+        if ask_choice('Use this as PR title?', default='y') != 'yes':
+            title = input(style('PR title: ', bold=True)).strip()
 
     if not body:
-        body = input('PR short description: ').strip()
+        body = input(style('PR short description: ', bold=True)).strip()
     else:
-        print('\nDetected PR description from latest commit body:')
-        print(body or '(empty)')
-        if not ask_yes_no('Use this as PR description?', default='y'):
-            body = input('PR short description: ').strip()
+        section('Detected PR description from latest commit body:')
+        print(style(body or '(empty)', dim=True))
+        if ask_choice('Use this as PR description?', default='y') != 'yes':
+            body = input(style('PR short description: ', bold=True)).strip()
 
     issues = detect_issues(files)
 
@@ -225,18 +293,23 @@ def main():
     items = []
 
     # 1 People-First & Simplicity (subjective)
+    ans = ask_choice('\nDoes this change follow People-First & Simplicity (clear, maintainable)?', default='y')
     items.append({
         'text': 'I verified this change follows the People-First & Simplicity principle (clear, maintainable code).',
         'auto': False,
-        'result': ask_yes_no('\nDoes this change follow People-First & Simplicity (clear, maintainable)?', default='y')
+        'result': ans
     })
 
     # 2 Screaming Architecture (subjective but we check root utils)
+    if issues['screaming_arch_ok']:
+        sa_result = 'yes'
+    else:
+        sa_result = ask_choice('Screaming Architecture check failed heuristically. Confirm manually?', default='n')
     items.append({
         'text': 'The change follows Screaming Architecture (feature/vertical-slice organization) where applicable.',
         'auto': True,
         'evidence': issues['found_prohibited_files'],
-        'result': issues['screaming_arch_ok'] or ask_yes_no('Screaming Architecture check failed heuristically. Confirm manually?', default='n')
+        'result': sa_result
     })
 
     # 3 No new root utils/helpers/services
@@ -244,43 +317,51 @@ def main():
         'text': "No new generic `utils/`, `helpers/`, or `services/` were added at the repository root without documented justification.",
         'auto': True,
         'evidence': issues['found_prohibited_files'],
-        'result': issues['no_root_utils']
+        'result': 'yes' if issues['no_root_utils'] else 'no'
     })
 
     # 4 Data location
+    if issues['data_location_ok']:
+        data_result = 'yes'
+    else:
+        data_result = ask_choice('No data files detected under `src/data/`. Is this OK (provide justification)?', default='n')
     items.append({
         'text': 'Data/config was added under `src/data/` (or `data/` with justification) and exported as a single well-typed constant when applicable.',
         'auto': True,
         'evidence': issues['data_paths'],
-        'result': issues['data_location_ok'] or ask_yes_no('No data files detected under `src/data/`. Is this OK (provide justification)?', default='n')
+        'result': data_result
     })
 
     # 5 Airplane Mode (subjective)
+    ans = ask_choice('Does this change preserve or document Airplane Mode requirements?', default='y')
     items.append({
         'text': 'The change preserves or documents Airplane Mode requirements (local mocks, no runtime external deps for dev/tests).',
         'auto': False,
-        'result': ask_yes_no('Does this change preserve or document Airplane Mode requirements?', default='y')
+        'result': ans
     })
 
     # 6 Shared-library exception documented
+    ans = ask_choice('Any shared-library exceptions documented in README/exceptions?', default='y')
     items.append({
         'text': 'Any shared-library or cross-feature exception is documented in the repo README or exceptions file with rationale.',
         'auto': False,
-        'result': ask_yes_no('Any shared-library exceptions documented in README/exceptions?', default='y')
+        'result': ans
     })
 
     # 7 Tests + Last Day
+    ans = ask_choice('Are tests included or a testing note present, and is the repo left in a releasable state?', default='y')
     items.append({
         'text': 'The author included tests or a clear testing note, and the change leaves the repo in a releasable state (Last Day).',
         'auto': False,
-        'result': ask_yes_no('Are tests included or a testing note present, and is the repo left in a releasable state?', default='y')
+        'result': ans
     })
 
     # 8 Performance optimizations documented
+    ans = ask_choice('Any performance optimizations that reduce readability documented and justified?', default='y')
     items.append({
         'text': 'Performance optimizations are documented and justified with benchmarks if they reduce readability.',
         'auto': False,
-        'result': ask_yes_no('Any performance optimizations that reduce readability documented and justified?', default='y')
+        'result': ans
     })
 
     # Build final checklist text
@@ -288,8 +369,22 @@ def main():
     checklist_lines.append(f"# PR Checklist for: {title}\n")
     checklist_lines.append(body + "\n")
     for it in items:
-        mark = 'x' if it['result'] else ' '
-        checklist_lines.append(f"- [{mark}] {it['text']}")
+        res = it['result']
+        if res == 'yes':
+            mark = 'x'
+            line = f"- [{mark}] {it['text']}"
+        elif res == 'no':
+            mark = ' '
+            line = f"- [{mark}] {it['text']}"
+        elif res == 'na':
+            mark = ' '
+            line = f"- [{mark}] {it['text']} (N/A)"
+        else:
+            # fallback
+            mark = ' '
+            line = f"- [{mark}] {it['text']}"
+
+        checklist_lines.append(line)
         if it.get('evidence'):
             ev = it['evidence']
             if ev:
@@ -304,18 +399,18 @@ def main():
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write(output)
 
-    print('\n--- Pre-PR Checklist ---\n')
+    section('Pre-PR Checklist')
     print(output)
 
     # Try to copy to clipboard on Windows using clip
     try:
         p = subprocess.Popen('clip', stdin=subprocess.PIPE, shell=True)
         p.communicate(output.encode('utf-8'))
-        print('\nChecklist copied to clipboard (Windows clip).')
+        info('\nChecklist copied to clipboard (Windows clip).')
     except Exception:
-        print('\nCould not copy to clipboard automatically. Checklist saved to', out_path)
+        warn('\nCould not copy to clipboard automatically. Checklist saved to ' + out_path)
 
-    print('\nYou can paste the checklist into PR body or rely on the automated Action to re-check after opening the PR.')
+    info('\nYou can paste the checklist into PR body or create the PR using the `gh` CLI when ready.')
 
     # Offer to create PR via GitHub CLI
     try:
@@ -413,7 +508,14 @@ def main():
                                 rc = 1
 
                 print('Running:', cmd)
-                rc = subprocess.run(cmd, shell=True)
+                proc = subprocess.run(cmd, shell=True)
+                rc = proc.returncode
+                if rc == 0:
+                    if ask_yes_no('Open the created PR in your web browser now?', default='y'):
+                        try:
+                            subprocess.run('gh pr view --web', shell=True)
+                        except Exception:
+                            print('Failed to open PR in browser with `gh`.')
                 if rc.returncode == 0:
                     print('\nPR created successfully via gh.')
                 else:
