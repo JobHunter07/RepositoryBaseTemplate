@@ -1,6 +1,6 @@
 # PR Checklist for: feat: add interactive pre-PR checklist script
 
-Initial Set up for Base Repo using Open Spec
+Intial Set up for Base Repo using Open Spec
 
 - [x] I verified this change follows the People-First & Simplicity principle (clear, maintainable code).
 - [x] The change follows Screaming Architecture (feature/vertical-slice organization) where applicable.
