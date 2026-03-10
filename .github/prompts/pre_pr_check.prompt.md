@@ -12,6 +12,7 @@ Inputs I will paste:
 Behavior:
 - For items you can auto-detect from the changed files, mention the evidence and suggest fixes.
 - For subjective items (readability, Last Day completeness), ask the user to confirm.
+ - For subjective items (readability, Last Day completeness), ask the user to confirm. Answers supported: `y` (yes), `n` (no), `na` (not applicable).
 - Output: a plain-text checklist identical to `.github/PULL_REQUEST_TEMPLATE.md` with `- [x]` for confirmed/passed items and `- [ ]` otherwise.
 
 Example usage:
